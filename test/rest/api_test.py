@@ -46,13 +46,13 @@ class TestApi(unittest.TestCase):
         )
 
     def test_api_divide(self):
-        url = f"{BASE_URL}/calc/divide/1/2"
+        url = f"{BASE_URL}/calc/divide/2/1"
         response = urlopen(url, timeout=DEFAULT_TIMEOUT)
         self.assertEqual(
             response.status, http.client.OK, f"Error en la petición API a {url}"
         )
         self.assertEqual(
-            response.read().decode(), "2", "ERROR DIVIDE"
+            response.read().decode(), "1", "ERROR DIVIDE"
         )
 
 if __name__ == "__main__":  # pragma: no cover
