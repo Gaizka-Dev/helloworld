@@ -1,0 +1,86 @@
+pipeline {
+   agent {label 'agente1'}
+
+   stages {
+      stage('Get Code') {
+        agent {label 'agente2'}
+        steps {
+            git branch: 'develop', url: 'https://github.com/Gaizka-Dev/helloworld.git'
+            sh 'whoami'
+            echo WORKSPACE
+            sh 'pwd && ls -lah'
+            stash name:'code', includes:'**'
+        }
+      }
+
+      stage('Build') {
+         agent {label 'agente3'}
+         steps {
+            unstash name:'code'
+            sh 'whoami'
+            echo WORKSPACE
+            echo 'Eyyy, esto es Python. No hay que compilar nada!!!'
+         }
+      }
+
+      stage('Tests') {
+         parallel {
+            stage('Unit') {
+               agent {label 'agente2'}
+               steps {
+                  unstash name:'code'
+                  sh 'whoami'
+                  echo WORKSPACE
+                  sh '''
+                     export PYTHONPATH=$PYTHONPATH:$WORKSPACE
+                     pytest --junitxml=result-unit.xml test/unit
+                  '''
+                  stash name:'unit-res', includes:'result-unit.xml'
+               }
+            }
+            stage('Rest') {
+               agent {label 'SBC'}
+               steps {
+                  sh 'whoami'
+                  echo WORKSPACE
+                  catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE') {
+                     unstash name:'code'
+                     sh 'docker ps --all --quiet --filter name=wiremock | xargs --no-run-if-empty docker rm --force'
+                     sh '''
+                        flask --app ./app/api.py run &
+                        docker run \
+                           --detach \
+                           --rm \
+                           --name wiremock \
+                           --publish 9090:8080 \
+                           --volume $PWD/test/wiremock/:/home/wiremock/:ro \
+                           wiremock/wiremock:latest
+                     '''
+                     sh 'ping -c5 localhost' // Hacemos ping para darle tiempo a que se levanten flask y wiremork en docker
+                     catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE') {
+                        sh 'pytest --junitxml=result-rest.xml test/rest'
+                     }
+                     stash name:'rest-res', includes:'result-rest.xml'
+                  }
+               }   
+            }  
+         }
+      }
+   }
+
+   post {
+      success {
+         script {
+            unstash name:'unit-res'
+            unstash name:'rest-res'
+            junit 'result*.xml'
+         }
+      }
+      cleanup {
+         agent {label 'SBC'}
+         script {
+            sh 'docker ps --all --quiet --filter name=wiremock | xargs --no-run-if-empty docker rm --force'
+         }
+      }
+   }
+}
