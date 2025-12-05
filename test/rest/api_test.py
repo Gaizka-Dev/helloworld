@@ -36,23 +36,23 @@ class TestApi(unittest.TestCase):
         )
 
     def test_api_multiply(self):
-        url = f"{BASE_URL}/calc/multiply/5/2"
+        url = f"{BASE_URL}/calc/multiply/3/3"
         response = urlopen(url, timeout=DEFAULT_TIMEOUT)
         self.assertEqual(
             response.status, http.client.OK, f"Error en la petición API a {url}"
         )
         self.assertEqual(
-            response.read().decode(), "10", "ERROR ADD"
+            response.read().decode(), "9", "ERROR ADD"
         )
 
     def test_api_divide(self):
-        url = f"{BASE_URL}/calc/divide/6/2"
+        url = f"{BASE_URL}/calc/divide/12/3"
         response = urlopen(url, timeout=DEFAULT_TIMEOUT)
         self.assertEqual(
             response.status, http.client.OK, f"Error en la petición API a {url}"
         )
         self.assertEqual(
-            response.read().decode(), "3.0", "ERROR ADD"
+            response.read().decode(), "4.0", "ERROR ADD"
         )        
 
 if __name__ == "__main__":  # pragma: no cover
