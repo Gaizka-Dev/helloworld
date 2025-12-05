@@ -53,9 +53,17 @@ class TestApi(unittest.TestCase):
         )
         self.assertEqual(
             response.read().decode(), "4.0", "ERROR DIVIDE"
-        )        
+        )
+
+    def test_api_power(self):
+        url = f"{BASE_URL}/calc/power/12/2"
+        response = urlopen(url, timeout=DEFAULT_TIMEOUT)
+        self.assertEqual(
+            response.status, http.client.OK, f"Error en la petición API a {url}"
+        )
+        self.assertEqual(
+            response.read().decode(), "144", "ERROR POWER"
+        )
 
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()
-
-# TODO --> Power **
