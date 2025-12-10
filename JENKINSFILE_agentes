@@ -72,6 +72,21 @@ pipeline {
             }  
          }
       }
+      stage('Cobertura') {
+         agent {label 'agente1'}
+         steps {
+            unstash name:'code'
+            sh 'whoami'
+            echo WORKSPACE
+            sh 'ls -lah && pwd'
+            sh '''
+                export PYTHONPATH=$PYTHONPATH:$WORKSPACE
+                coverage run --branch --source=app --omit=app/__init__.py,app/api.py -m pytest test/unit 
+                coverage xml
+            '''
+            recordCoverage qualityGates: [[criticality: 'NOTE', integerThreshold: 85, metric: 'LINE', threshold: 85.0], [criticality: 'ERROR', integerThreshold: 60, metric: 'LINE', threshold: 60.0], [criticality: 'NOTE', integerThreshold: 80, metric: 'BRANCH', threshold: 80.0]], tools: [[parser: 'COBERTURA', pattern: 'coverage.xml']]
+        }
+      }
    }
 
    post {
