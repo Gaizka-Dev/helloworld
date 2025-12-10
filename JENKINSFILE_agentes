@@ -8,7 +8,7 @@ pipeline {
         steps {
             checkout scmGit(
                branches: [[ name: 'develop' ]],
-               extensions: [ cloneOptions( shallow: true, depth: 1 )],
+               extensions: [ cloneOption( shallow: true, depth: 1 )],
                userRemoteConfigs: [[ url: 'https://github.com/Gaizka-Dev/helloworld.git' ]]
             )
             // git branch: 'develop', url: 'https://github.com/Gaizka-Dev/helloworld.git'
