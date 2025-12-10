@@ -75,7 +75,7 @@ pipeline {
    }
 
    post {
-      success {
+      always {
          script {
             unstash name:'unit-res'
             unstash name:'rest-res'
