@@ -1,11 +1,17 @@
 pipeline {
-   agent {label 'agente1'}
+   agent any
+   options { skipDefaultCheckout(true) }
 
    stages {
       stage('Get Code') {
-        agent {label 'agente2'}
+        agent {label 'agente1'}
         steps {
-            git branch: 'develop', url: 'https://github.com/Gaizka-Dev/helloworld.git'
+            checkout scmGit(
+               branches: [[ name: 'develop' ]],
+               extensions: [ cloneOptions( shallow: true, depth: 1 )],
+               userRemoteConfigs: [[ url: 'https://github.com/Gaizka-Dev/helloworld.git' ]]
+            )
+            // git branch: 'develop', url: 'https://github.com/Gaizka-Dev/helloworld.git'
             sh 'whoami'
             echo WORKSPACE
             sh 'pwd && ls -lah'
@@ -14,7 +20,7 @@ pipeline {
       }
 
       stage('Build') {
-         agent {label 'agente3'}
+         agent {label 'agente2'}
          steps {
             unstash name:'code'
             sh 'whoami'
@@ -26,7 +32,7 @@ pipeline {
       stage('Tests') {
          parallel {
             stage('Unit') {
-               agent {label 'agente2'}
+               agent {label 'agente3'}
                steps {
                   unstash name:'code'
                   sh 'whoami'
@@ -39,7 +45,7 @@ pipeline {
                }
             }
             stage('Rest') {
-               agent {label 'agente1'}
+               agent {label 'SBC'}
                steps {
                   sh 'whoami'
                   echo WORKSPACE
