@@ -11,7 +11,6 @@ pipeline {
                extensions: [ cloneOption( shallow: true, depth: 1 )],
                userRemoteConfigs: [[ url: 'https://github.com/Gaizka-Dev/helloworld.git' ]]
             )
-            // git branch: 'develop', url: 'https://github.com/Gaizka-Dev/helloworld.git'
             sh 'whoami'
             echo WORKSPACE
             sh 'pwd && ls -lah'
@@ -19,13 +18,17 @@ pipeline {
         }
       }
 
-      stage('Build') {
+      stage('Static') {
          agent {label 'agente2'}
          steps {
             unstash name:'code'
             sh 'whoami'
             echo WORKSPACE
-            echo 'Eyyy, esto es Python. No hay que compilar nada!!!'
+            sh 'flake8 --exit-zero --format=pylint app > flake8.out'
+         //    recordIssues qualityGates: 
+         //       [[ threshold: 8.0, type: 'TOTAL', unsetable: true], [criticality: 'ERROR', integerThreshold: 9, threshold: 9.0, type: 'TOTAL']], 
+         //       sourceCodeRetention: 'LAST_BUILD', 
+         //       tools: [flake8(name: 'Flake8', pattern: 'flake8.out')]
          }
       }
 
@@ -45,11 +48,12 @@ pipeline {
                }
             }
             stage('Rest') {
-               agent {label 'SBC'}
+               // agent {label 'SBC'}
+               agent {label 'agente3'}
                steps {
                   sh 'whoami'
                   echo WORKSPACE
-                  catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE') {
+                  catchError(buildResult: 'SUCCESS', stageResult: 'UNSTABLE') {
                      unstash name:'code'
                      sh 'docker ps --all --quiet --filter name=wiremock | xargs --no-run-if-empty docker rm --force'
                      sh '''
@@ -63,15 +67,14 @@ pipeline {
                            wiremock/wiremock:latest
                      '''
                      sh 'ping -c5 localhost' // Hacemos ping para darle tiempo a que se levanten flask y wiremork en docker
-                     catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE') {
-                        sh 'pytest --junitxml=result-rest.xml test/rest'
-                     }
+                     sh 'pytest --junitxml=result-rest.xml test/rest'
                      stash name:'rest-res', includes:'result-rest.xml'
                   }
                }   
             }  
          }
       }
+
       stage('Cobertura') {
          agent {label 'agente1'}
          steps {
@@ -87,18 +90,38 @@ pipeline {
             recordCoverage qualityGates: [[criticality: 'NOTE', integerThreshold: 85, metric: 'LINE', threshold: 85.0], [criticality: 'ERROR', integerThreshold: 60, metric: 'LINE', threshold: 60.0], [criticality: 'NOTE', integerThreshold: 80, metric: 'BRANCH', threshold: 80.0]], tools: [[parser: 'COBERTURA', pattern: 'coverage.xml']]
         }
       }
-   }
 
-   post {
-      always {
-         script {
+      stage('Seguridad') {
+         steps {
+            sh 'bandit --exit-zero -r . -f custom -o bandit.out --msg-template "{abspath}:{line}: [{test_id}] {msg}"'
+            recordIssues minimumSeverity: 'HIGH', qualityGates: [[criticality: 'ERROR', integerThreshold: 8, threshold: 8.0, type: 'TOTAL']], sourceCodeRetention: 'LAST_BUILD', tools: [pyLint(name: 'Bandit', pattern: 'bandit.out')]
+         }
+      }
+
+      stage('Performance') {
+         steps {
+            unstash name:'code'
+            sh 'flask --app ./app/api.py run &'
+            sh "/home/gka/Downloads/apache-jmeter-5.6.3/bin/jmeter.sh -n -t ${WORKSPACE}/test/jmeter/flask.jmx -l flask.jtl"
+            // sh '/home/gka/Downloads/apache-jmeter-5.6.3/bin/jmeter.sh -n -t test/jmeter/flask.jmx -l flask.jtl'
+            perfReport filterRegex: '', showTrendGraphs: true, sourceDataFiles: 'flask.jtl'
+         }
+      }
+
+      stage('Results') {
+         agent {label 'agente3'}
+         steps {
             unstash name:'unit-res'
+            sleep(5)
             unstash name:'rest-res'
             junit 'result*.xml'
          }
       }
+   }
+
+   post {
       cleanup {
-         agent {label 'SBC'}
+         agent {label 'agente3'}
          script {
             sh 'docker ps --all --quiet --filter name=wiremock | xargs --no-run-if-empty docker rm --force'
          }
