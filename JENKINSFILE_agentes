@@ -1,0 +1,135 @@
+pipeline {
+   agent any
+   options { skipDefaultCheckout(true) }
+
+   stages {
+      stage('Get Code') {
+        agent {label 'agente1'}
+        steps {
+            checkout scmGit(
+               branches: [[ name: 'master' ]],
+               extensions: [ cloneOption( shallow: true, depth: 1 )],
+               userRemoteConfigs: [[ url: 'https://github.com/Gaizka-Dev/helloworld.git' ]]
+            )
+            sh 'whoami'
+            echo WORKSPACE
+            sh 'pwd && ls -lh'
+            stash name:'code', includes:'**'
+        }
+      }
+
+      stage('Tests Funcionales') {
+         parallel {
+            stage('Unit') {
+               agent {label 'agente1'}
+               steps {
+                  unstash name:'code'
+                  sh 'whoami'
+                  echo WORKSPACE
+                  sh '''
+                     export PYTHONPATH=$PYTHONPATH:$WORKSPACE
+                     pytest --junitxml=result-unit.xml test/unit
+                  '''
+                  junit 'result-unit.xml'
+               }
+            }
+            stage('Rest') {
+               agent {label 'docker'}  // SBC (Orange Pi) conectada por SSH
+               steps {
+                  echo "Lanzado en el nodo -----> ${env.NODE_LABELS}"
+                  sh 'printenv'
+                  sh 'whoami'
+                  echo WORKSPACE
+                  catchError(buildResult: 'SUCCESS', stageResult: 'SUCCESS') {
+                     unstash name:'code'
+                     sh 'docker ps --all --quiet --filter name=wiremock | xargs --no-run-if-empty docker rm --force'
+                     sh '''
+                        flask --app ./app/api.py run &
+                        docker run \
+                           --detach \
+                           --rm \
+                           --name wiremock \
+                           --publish 9090:8080 \
+                           --volume $PWD/test/wiremock/:/home/wiremock/:ro \
+                           wiremock/wiremock:latest
+                     '''
+                     sh 'ping -c5 localhost' // Hacemos ping para darle tiempo a que se levanten flask y wiremork en docker
+                     sh 'pytest --junitxml=result-rest.xml test/rest'
+                     junit 'result-rest.xml'
+                  }
+               }   
+            }
+            
+         }
+      }
+
+      stage ('Tests No funcionales'){
+         parallel{
+            stage('Static') {
+               agent {label 'agente1'}
+               steps {
+                  sh 'whoami'
+                  echo WORKSPACE
+                  sh 'flake8 --exit-zero --format=pylint app > flake8.out'
+                  recordIssues qualityGates: [
+                     [criticality: 'NOTE', integerThreshold: 8, threshold: 8.0, type: 'TOTAL'],
+                     [criticality: 'FAILURE', integerThreshold: 10, threshold: 10.0, type: 'TOTAL']
+                     ], 
+                     sourceCodeRetention: 'LAST_BUILD',
+                     tools: [flake8(name: 'Flake8.out', pattern: 'flake8.out')]
+               }
+            }
+            stage('Security') {
+               agent {label 'agente2'}
+               steps {
+                  unstash name:'code'
+                  sh 'whoami'
+                  echo WORKSPACE
+                  sh 'bandit --exit-zero -r . -f custom -o bandit.out --msg-template "{abspath}:{line}: [{test_id}] {msg}"'
+                  recordIssues qualityGates: [
+                     [criticality: 'NOTE', integerThreshold: 2, threshold: 2.0, type: 'TOTAL'],
+                     [criticality: 'FAILURE', integerThreshold: 4, threshold: 4.0, type: 'TOTAL']
+                     ],
+                     minimumSeverity: 'HIGH',
+                     sourceCodeRetention: 'LAST_BUILD',
+                     tools: [pyLint(name: 'Bandit', pattern: 'bandit.out')]
+               }
+            }
+            stage('Cobertura') {
+               agent {label 'agente3'}
+               steps {
+                  unstash name:'code'
+                  sh 'whoami'
+                  echo WORKSPACE
+                  sh 'ls -lah && pwd'
+                  sh '''
+                     export PYTHONPATH=$PYTHONPATH:$WORKSPACE
+                     coverage run --branch --source=app --omit=app/__init__.py,app/api.py -m pytest test/unit 
+                     coverage xml
+                  '''
+                  recordCoverage qualityGates: [[criticality: 'NOTE', integerThreshold: 95, metric: 'LINE', threshold: 95.0], [criticality: 'ERROR', integerThreshold: 85, metric: 'LINE', threshold: 85.0], [criticality: 'NOTE', integerThreshold: 90, metric: 'BRANCH', threshold: 90.0], [criticality: 'ERROR', integerThreshold: 80, metric: 'BRANCH', threshold: 80.0]], tools: [[parser: 'COBERTURA', pattern: 'coverage.xml']]
+               }
+            }
+         }
+      }
+      stage('Performance') {
+         agent {label 'agente1'}
+         steps {
+            unstash name:'code'
+            sh 'flask --app ./app/api.py run &'
+            sh 'ping -c2 localhost'
+            sh "/home/gka/Downloads/apache-jmeter-5.6.3/bin/jmeter -n -t ${WORKSPACE}/test/jmeter/flask.jmx -l flask.jtl"
+            perfReport filterRegex: '', showTrendGraphs: true, sourceDataFiles: 'flask.jtl'
+         }
+      }
+   }
+
+   post {
+      cleanup {
+         agent {label 'docker'}
+         script {
+            sh 'docker ps --all --quiet --filter name=wiremock | xargs --no-run-if-empty docker rm --force'
+         }
+      }
+   }
+}
