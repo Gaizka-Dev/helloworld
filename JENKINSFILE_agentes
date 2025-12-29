@@ -1,19 +1,22 @@
 pipeline {
    agent any
    options { skipDefaultCheckout(true) }
+   parameters {
+      choice(name: 'RAMA', choices: ['master', 'feature_fix_coverage'], description: 'Rama que vamos a descargar para ejecutar los Tests')
+   }
 
    stages {
       stage('Get Code') {
         agent {label 'agente1'}
         steps {
             checkout scmGit(
-               branches: [[ name: 'master' ]],
+               branches: [[ name: "${params.RAMA}" ]],
                extensions: [ cloneOption( shallow: true, depth: 1 )],
                userRemoteConfigs: [[ url: 'https://github.com/Gaizka-Dev/helloworld.git' ]]
             )
             sh 'whoami'
             echo WORKSPACE
-            sh 'pwd && ls -lh'
+            sh 'hostname'
             stash name:'code', includes:'**'
         }
       }
@@ -26,6 +29,7 @@ pipeline {
                   unstash name:'code'
                   sh 'whoami'
                   echo WORKSPACE
+                  sh 'hostname'
                   sh '''
                      export PYTHONPATH=$PYTHONPATH:$WORKSPACE
                      pytest --junitxml=result-unit.xml test/unit
@@ -34,12 +38,13 @@ pipeline {
                }
             }
             stage('Rest') {
-               agent {label 'docker'}  // SBC (Orange Pi) conectada por SSH
+               agent {label 'docker'}
                steps {
                   echo "Lanzado en el nodo -----> ${env.NODE_LABELS}"
                   sh 'printenv'
                   sh 'whoami'
                   echo WORKSPACE
+                  sh 'hostname'
                   catchError(buildResult: 'SUCCESS', stageResult: 'SUCCESS') {
                      unstash name:'code'
                      sh 'docker ps --all --quiet --filter name=wiremock | xargs --no-run-if-empty docker rm --force'
@@ -52,14 +57,18 @@ pipeline {
                            --publish 9090:8080 \
                            --volume $PWD/test/wiremock/:/home/wiremock/:ro \
                            wiremock/wiremock:latest
+                     '''  
+                     sh '''
+                        echo "Esperando a que se levante Wiremock..."
+                        while ! docker ps --filter name=wiremock --filter health=healthy | grep wiremock; do
+                            sleep 3
+                        done
                      '''
-                     sh 'ping -c5 localhost' // Hacemos ping para darle tiempo a que se levanten flask y wiremork en docker
                      sh 'pytest --junitxml=result-rest.xml test/rest'
                      junit 'result-rest.xml'
                   }
                }   
             }
-            
          }
       }
 
@@ -70,6 +79,7 @@ pipeline {
                steps {
                   sh 'whoami'
                   echo WORKSPACE
+                  sh 'hostname'
                   sh 'flake8 --exit-zero --format=pylint app > flake8.out'
                   recordIssues qualityGates: [
                      [criticality: 'NOTE', integerThreshold: 8, threshold: 8.0, type: 'TOTAL'],
@@ -85,6 +95,7 @@ pipeline {
                   unstash name:'code'
                   sh 'whoami'
                   echo WORKSPACE
+                  sh 'hostname'
                   sh 'bandit --exit-zero -r . -f custom -o bandit.out --msg-template "{abspath}:{line}: [{test_id}] {msg}"'
                   recordIssues qualityGates: [
                      [criticality: 'NOTE', integerThreshold: 2, threshold: 2.0, type: 'TOTAL'],
@@ -101,7 +112,7 @@ pipeline {
                   unstash name:'code'
                   sh 'whoami'
                   echo WORKSPACE
-                  sh 'ls -lah && pwd'
+                  sh 'hostname'
                   sh '''
                      export PYTHONPATH=$PYTHONPATH:$WORKSPACE
                      coverage run --branch --source=app --omit=app/__init__.py,app/api.py -m pytest test/unit 
@@ -112,6 +123,7 @@ pipeline {
             }
          }
       }
+
       stage('Performance') {
          agent {label 'agente1'}
          steps {
@@ -122,13 +134,45 @@ pipeline {
             perfReport filterRegex: '', showTrendGraphs: true, sourceDataFiles: 'flask.jtl'
          }
       }
-   }
 
-   post {
-      cleanup {
-         agent {label 'docker'}
-         script {
-            sh 'docker ps --all --quiet --filter name=wiremock | xargs --no-run-if-empty docker rm --force'
+      stage('Cleanup'){
+         parallel {
+            stage('Agente 1'){
+               agent {label 'agente1'}
+               steps{
+                  sh 'hostname'
+                  echo WORKSPACE
+                  deleteDir()
+               }
+            }
+
+            stage('Agente 2'){
+               agent {label 'agente2'}
+               steps{
+                  sh 'hostname'
+                  echo WORKSPACE
+                  deleteDir()
+               }
+            }
+
+            stage('Agente 3'){
+               agent {label 'agente3'}
+               steps{
+                  sh 'hostname'
+                  echo WORKSPACE
+                  deleteDir()
+               }
+            }
+
+            stage('Agente SBC'){
+               agent {label 'sbc'}
+               steps{
+                  sh 'hostname'
+                  echo WORKSPACE
+                  sh 'docker ps --all --quiet --filter name=wiremock | xargs --no-run-if-empty docker rm --force'
+                  deleteDir()
+               }
+            }
          }
       }
    }
