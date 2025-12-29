@@ -53,7 +53,7 @@ pipeline {
                            --volume $PWD/test/wiremock/:/home/wiremock/:ro \
                            wiremock/wiremock:latest
                      '''
-                     sh 'ping -c5 localhost' // Hacemos ping para darle tiempo a que se levanten flask y wiremork en docker
+                     sh 'ping -c5 localhost' // Hacemos ping para darle tiempo a que se levanten flask y wiremock en docker
                      sh 'pytest --junitxml=result-rest.xml test/rest'
                      junit 'result-rest.xml'
                   }
