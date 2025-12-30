@@ -129,9 +129,22 @@ pipeline {
          steps {
             unstash name:'code'
             sh 'flask --app ./app/api.py run &'
-            sh 'ping -c2 localhost'
-            sh "/home/gka/Downloads/apache-jmeter-5.6.3/bin/jmeter -n -t ${WORKSPACE}/test/jmeter/flask.jmx -l flask.jtl"
-            perfReport filterRegex: '', showTrendGraphs: true, sourceDataFiles: 'flask.jtl'
+            catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE') {
+               sh '''
+                  echo "Esperando a que se levante flask..."
+                  i=0
+                  while ! curl localhost:5000; do
+                     sleep 3
+                     i=$((i+1))
+                     if [ $i -gt 10 ]; then
+                        echo "Timeout alcanzado después de 10 intentos"
+                        exit 1
+                     fi
+                  done
+               '''
+               sh "/home/gka/Downloads/apache-jmeter-5.6.3/bin/jmeter -n -t ${WORKSPACE}/test/jmeter/flask.jmx -l flask.jtl"
+               perfReport filterRegex: '', showTrendGraphs: true, sourceDataFiles: 'flask.jtl'
+            }
          }
       }
 
@@ -145,7 +158,6 @@ pipeline {
                   deleteDir()
                }
             }
-
             stage('Agente 2'){
                agent {label 'agente2'}
                steps{
@@ -154,7 +166,6 @@ pipeline {
                   deleteDir()
                }
             }
-
             stage('Agente 3'){
                agent {label 'agente3'}
                steps{
@@ -163,7 +174,6 @@ pipeline {
                   deleteDir()
                }
             }
-
             stage('Agente SBC'){
                agent {label 'sbc'}
                steps{
